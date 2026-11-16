@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inside the CPU: An Interactive Instruction Execution and Datapath Simulator</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Top Global Navigation Bar -->
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="cpu-chip-icon">
+        <span class="chip-inner">CPU</span>
+      </div>
+      <div>
+        <h1 class="app-title">Inside the CPU: Datapath &amp; Execution Simulator</h1>
+        <p class="app-subtitle">Computer Organization &amp; Architecture (COA Unit 4) • Single-Bus Organization</p>
+      </div>
+    </div>
+
+    <!-- Mode Selector Tabs -->
+    <nav class="nav-tabs" role="tablist">
+      <button class="nav-tab active" data-tab="simulator-tab" id="tabBtnSimulator">
+        <span class="tab-icon">⚡</span> Datapath Simulator
+      </button>
+      <button class="nav-tab" data-tab="learning-tab" id="tabBtnLearning">
+        <span class="tab-icon">📚</span> Learn Concepts
+      </button>
+      <button class="nav-tab" data-tab="practice-tab" id="tabBtnPractice">
+        <span class="tab-icon">🎯</span> Practice &amp; Quiz
+      </button>
+    </nav>
+  </header>
+
+  <!-- Notification Banner / Toast Container -->
+  <div id="toastNotification" class="toast hidden"></div>
+
+  <!-- TAB 1: INTERACTIVE DATAPATH SIMULATOR -->
+  <main id="simulator-tab" class="tab-pane active">
+
+    <!-- KPI / Status Overview Bar -->
+    <section class="status-kpi-bar">
+      <div class="kpi-card">
+        <span class="kpi-label">EXECUTION PHASE</span>
+        <div class="kpi-value-wrap">
+          <span id="kpiPhaseBadge" class="phase-badge phase-fetch">FETCH</span>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">CURRENT INSTRUCTION</span>
+        <div class="kpi-value code-font" id="kpiInstruction">ADD R1, R2, R3</div>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">CURRENT MICRO-STEP</span>
+        <div class="kpi-value code-font text-cyan" id="kpiMicroOp">Step 1: PCout, MARin, Read, Select4, Add, Zin</div>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">CLOCK CYCLE (T)</span>
+        <div class="kpi-value code-font text-yellow" id="kpiClock">T1 (Cycle #1)</div>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">MICRO-OP PROGRESS</span>
+        <div class="progress-wrap">
+          <div class="progress-text"><span id="kpiStepNum">1</span> of <span id="kpiStepTotal">8</span> steps</div>
+          <div class="progress-bar-bg"><div id="kpiProgressBar" class="progress-bar-fill" style="width: 12.5%;"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Controls Ribbon -->
+    <section class="controls-panel card">
+      <div class="controls-inner">
+        <!-- Instruction Configuration -->
+        <div class="config-group">
+          <div class="field-item">
+            <label for="instructionSelect">Instruction</label>
+            <select id="instructionSelect" class="form-control">
+              <option value="ADD">ADD (R_dest = R_src1 + R_src2)</option>
+              <option value="SUB">SUB (R_dest = R_src1 - R_src2)</option>
+              <option value="LOAD">LOAD (R_dest = [R_addr])</option>
+              <option value="STORE">STORE ([R_addr] = R_src)</option>
+              <option value="MOV">MOV (R_dest = R_src)</option>
+              <option value="BRANCH">BRANCH (PC = Target Address)</option>
+            </select>
+          </div>
+
+          <!-- Dynamic parameter inputs -->
+          <div class="dynamic-inputs" id="dynamicParams">
+            <!-- Injected by JavaScript according to chosen opcode -->
+          </div>
+          
+          <button id="btnLoadProgram" class="btn btn-secondary" title="Load selected configuration into CPU registers and memory">
+            📥 Load Instruction
+          </button>
+        </div>
+
+        <!-- Simulation Stepping Buttons -->
+        <div class="action-btn-group">
+          <button id="btnNextStep" class="btn btn-primary btn-pulse" title="Execute exactly one micro-operation (1 clock cycle)">
+            ⏭️ Next Micro-Step
+          </button>
+          <button id="btnRun" class="btn btn-success" title="Run automatically through cycles">
+            ▶️ Run
+          </button>
+          <button id="btnPause" class="btn btn-warning" title="Pause automatic execution" disabled>
+            ⏸️ Pause
+          </button>
+          <button id="btnExecFull" class="btn btn-cyan" title="Complete full instruction immediately">
+            ⏩ Full Instruction
+          </button>
+          <button id="btnReset" class="btn btn-danger" title="Reset CPU registers, datapath and state to initial values">
+            🔄 Reset
+          </button>
+        </div>
+
+        <!-- Speed control slider -->
+        <div class="speed-control">
+          <label for="speedRange">Run Speed: <span id="speedValue">1.2s</span></label>
+          <input type="range" id="speedRange" min="300" max="2500" step="100" value="1200">
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Datapath Grid Layout -->
+    <div class="simulator-layout-grid">
+
+      <!-- LEFT COLUMN: CPU Architecture Datapath Diagram (Interactive Canvas/SVG) -->
+      <section class="datapath-card card">
+        <div class="card-header">
+          <div class="header-left">
+            <span class="badge-dot pulse-cyan"></span>
+            <h2>CPU Architecture &amp; Single-Bus Datapath</h2>
+          </div>
+          <div class="datapath-legend">
+            <span class="legend-item"><span class="legend-box bus-active-indicator"></span> Active Bus Signal</span>
+            <span class="legend-item"><span class="legend-box component-active-indicator"></span> Active Unit</span>
+            <span class="legend-item"><span class="legend-box memory-indicator"></span> Memory Access</span>
+          </div>
+        </div>
+
+        <!-- Scrollable Datapath Container -->
+        <div class="datapath-viewport" id="datapathViewport">
+          <div class="datapath-wrapper">
+
+            <!-- MAIN INTERNAL CPU BUS (Center Spine) -->
+            <div class="internal-cpu-bus" id="internalBus">
+              <div class="bus-label">INTERNAL CPU BUS (16-BIT COMMON TRISTATE DATA HIGHWAY)</div>
+              <div class="bus-travel-packet" id="busPacket"></div>
+            </div>
+
+            <!-- TOP TIER: Program Counter (PC), Instruction Register (IR), Control Unit -->
+            <div class="datapath-row row-top">
+              <!-- PC Register -->
+              <div class="unit-box reg-box" id="unit-PC" data-tooltip="Program Counter: Holds address of next instruction to be fetched">
+                <div class="unit-header">
+                  <span class="unit-title">PC (Program Counter)</span>
+                  <span class="control-gate gate-out" id="gate-PCout">PCout</span>
+                  <span class="control-gate gate-in" id="gate-PCin">PCin</span>
+                </div>
+                <div class="unit-value code-font" id="val-PC">100</div>
+                <div class="bus-tap tap-down" id="tap-PC"></div>
+              </div>
+
+              <!-- Control Unit -->
+              <div class="unit-box cu-box" id="unit-CU" data-tooltip="Control Unit: Decodes IR and generates micro-operation control timing pulses">
+                <div class="unit-header">
+                  <span class="unit-title">CONTROL UNIT</span>
+                  <span class="cu-badge" id="cuStateBadge">Active</span>
+                </div>
+                <div class="cu-step-desc code-font" id="cuStepName">Step 1 / 8</div>
+                <div class="cu-signals-active" id="cuSignalsSnippet">Signals: PCout, MARin, Read</div>
+              </div>
+
+              <!-- Instruction Register (IR) -->
+              <div class="unit-box reg-box" id="unit-IR" data-tooltip="Instruction Register: Holds the current machine instruction being executed">
+                <div class="unit-header">
+                  <span class="unit-title">IR (Instruction Reg)</span>
+                  <span class="control-gate gate-in" id="gate-IRin">IRin</span>
+                </div>
+                <div class="unit-value code-font" id="val-IR">ADD R1, R2, R3</div>
+                <div class="bus-tap tap-down" id="tap-IR"></div>
+              </div>
+            </div>
+
+            <!-- MIDDLE TIER: General Purpose Registers R0 - R7 -->
+            <div class="datapath-row row-gpr">
+              <div class="gpr-bank-label">GENERAL PURPOSE REGISTERS (R0 – R7)</div>
+              <div class="gpr-bank" id="gprBank">
+                <!-- R0 to R7 generated dynamically with taps -->
+              </div>
+            </div>
+
+            <!-- LOWER-MID TIER: ALU Subsystem (Y -> ALU [Mux, Add/Sub] -> Z) -->
+            <div class="datapath-row row-alu">
+              
+              <!-- Temporary Register Y -->
+              <div class="unit-box temp-box" id="unit-Y" data-tooltip="Register Y: Buffers first ALU operand directly from the common bus">
+                <div class="unit-header">
+                  <span class="unit-title">Temp Reg Y</span>
+                  <span class="control-gate gate-in" id="gate-Yin">Yin</span>
+                </div>
+                <div class="unit-value code-font" id="val-Y">0</div>
+                <div class="bus-tap tap-alu-in" id="tap-Y"></div>
+              </div>
+
+              <!-- ALU Unit with Multiplexer -->
+              <div class="unit-box alu-unit" id="unit-ALU" data-tooltip="Arithmetic Logic Unit: Computes Add, Sub, or Increments using MUX (Select4 / SelectY)">
+                <div class="alu-shape-wrap">
+                  <div class="alu-mux" id="aluMux">
+                    <span>MUX</span>
+                    <span class="mux-tag" id="tagMux">Select Y</span>
+                  </div>
+                  <div class="alu-body">
+                    <span class="alu-symbol">ALU</span>
+                    <div class="alu-op-display code-font" id="aluOpDisplay">IDLE</div>
+                  </div>
+                </div>
+                <div class="alu-controls">
+                  <span class="control-gate gate-alu" id="gate-Add">Add</span>
+                  <span class="control-gate gate-alu" id="gate-Sub">Subtract</span>
+                  <span class="control-gate gate-alu" id="gate-SelectY">SelectY</span>
+                  <span class="control-gate gate-alu" id="gate-Select4">Select4</span>
+                </div>
+              </div>
+
+              <!-- Temporary Register Z -->
+              <div class="unit-box temp-box" id="unit-Z" data-tooltip="Register Z: Latches ALU computation result before driving onto common bus">
+                <div class="unit-header">
+                  <span class="unit-title">Temp Reg Z</span>
+                  <span class="control-gate gate-out" id="gate-Zout">Zout</span>
+                  <span class="control-gate gate-in" id="gate-Zin">Zin</span>
+                </div>
+                <div class="unit-value code-font" id="val-Z">0</div>
+                <div class="bus-tap tap-alu-out" id="tap-Z"></div>
+              </div>
+
+            </div>
+
+            <!-- BOTTOM TIER: Memory Subsystem (MAR, MDR, Memory Bus, Main Memory) -->
+            <div class="datapath-row row-memory">
+              
+              <!-- MAR -->
+              <div class="unit-box reg-box" id="unit-MAR" data-tooltip="Memory Address Register: Connected to address lines of main memory">
+                <div class="unit-header">
+                  <span class="unit-title">MAR (Address Reg)</span>
+                  <span class="control-gate gate-in" id="gate-MARin">MARin</span>
+                </div>
+                <div class="unit-value code-font" id="val-MAR">100</div>
+                <div class="bus-tap tap-up" id="tap-MAR"></div>
+              </div>
+
+              <!-- MDR with Dual Gates -->
+              <div class="unit-box reg-box" id="unit-MDR" data-tooltip="Memory Data Register: Two-way buffer between common CPU bus and external memory data lines">
+                <div class="unit-header">
+                  <span class="unit-title">MDR (Data Reg)</span>
+                  <div class="gates-cluster">
+                    <span class="control-gate gate-in" id="gate-MDRin">MDRin</span>
+                    <span class="control-gate gate-out" id="gate-MDRout">MDRout</span>
+                    <span class="control-gate gate-in" id="gate-MDRinE">MDRinE</span>
+                    <span class="control-gate gate-out" id="gate-MDRoutE">MDRoutE</span>
+                  </div>
+                </div>
+                <div class="unit-value code-font" id="val-MDR">0</div>
+                <div class="bus-tap tap-up" id="tap-MDR"></div>
+              </div>
+
+              <!-- External Memory Bus & Controls (Read/Write/WMFC) -->
+              <div class="mem-bus-junction" id="memBusJunction">
+                <div class="mem-signals">
+                  <span class="control-gate gate-mem" id="gate-Read">Read</span>
+                  <span class="control-gate gate-mem" id="gate-Write">Write</span>
+                  <span class="control-gate gate-mem" id="gate-WMFC">WMFC</span>
+                </div>
+                <div class="mem-lines-svg">
+                  <svg width="100%" height="40">
+                    <line x1="20" y1="20" x2="90%" y2="20" stroke="#00e5ff" stroke-width="3" stroke-dasharray="4,4" id="memDataLine"></line>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- Main Memory Subsystem Block -->
+              <div class="unit-box memory-block" id="unit-Memory" data-tooltip="Main Memory (RAM): Holds instructions at 100-112 and data at 200-216">
+                <div class="unit-header">
+                  <span class="unit-title">MAIN MEMORY (RAM)</span>
+                  <span class="mfc-status" id="mfcStatus">MFC: Ready</span>
+                </div>
+                <div class="mem-status-text" id="memActivity">Status: Idle</div>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+
+      </section>
+
+      <!-- RIGHT COLUMN: Monitors & Explanations -->
+      <aside class="sidebar-panels">
+
+        <!-- Panel 1: Execution Explanation -->
+        <div class="panel-card card">
+          <div class="card-header">
+            <h3>📖 Step-by-Step Educational Guide</h3>
+            <span class="step-counter-tag" id="explStepBadge">Micro-Step 1</span>
+          </div>
+          <div class="explanation-body">
+            <div class="expl-row">
+              <span class="expl-label">Operation:</span>
+              <span class="expl-value text-cyan" id="explOp">Address setup for instruction fetch</span>
+            </div>
+            <div class="expl-row">
+              <span class="expl-label">Source Component:</span>
+              <span class="expl-value" id="explSource">Program Counter (PC)</span>
+            </div>
+            <div class="expl-row">
+              <span class="expl-label">Destination Component:</span>
+              <span class="expl-value" id="explDest">Memory Address Register (MAR)</span>
+            </div>
+            <div class="expl-row">
+              <span class="expl-label">Active Signals:</span>
+              <span class="expl-value text-yellow code-font" id="explSignals">PCout, MARin, Read, Select4, Add, Zin</span>
+            </div>
+            <div class="expl-pedagogy">
+              <div class="pedagogy-title">💡 Why is this step necessary?</div>
+              <p class="pedagogy-text" id="explWhy">
+                In a single-bus CPU, to read any instruction, its memory address in PC must first be copied into MAR. Simultaneously, the ALU can take PC through the bus and add 4 via MUX (Select4) so the next instruction address is ready!
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 2: Active Control Signals Monitor -->
+        <div class="panel-card card">
+          <div class="card-header">
+            <h3>⚡ Active Control Signals</h3>
+            <span class="clock-tag" id="controlClockBadge">Cycle T1</span>
+          </div>
+          <div class="signals-grid" id="signalsGrid">
+            <!-- Badges for all signals dynamically highlighted -->
+            <span class="sig-badge" id="sig-PCout">PCout</span>
+            <span class="sig-badge" id="sig-PCin">PCin</span>
+            <span class="sig-badge" id="sig-MARin">MARin</span>
+            <span class="sig-badge" id="sig-Read">Read</span>
+            <span class="sig-badge" id="sig-WMFC">WMFC</span>
+            <span class="sig-badge" id="sig-MDRinE">MDRinE</span>
+            <span class="sig-badge" id="sig-MDRout">MDRout</span>
+            <span class="sig-badge" id="sig-IRin">IRin</span>
+            <span class="sig-badge" id="sig-R0out">R0out</span>
+            <span class="sig-badge" id="sig-R1out">R1out</span>
+            <span class="sig-badge" id="sig-R2out">R2out</span>
+            <span class="sig-badge" id="sig-R3out">R3out</span>
+            <span class="sig-badge" id="sig-R1in">R1in</span>
+            <span class="sig-badge" id="sig-R2in">R2in</span>
+            <span class="sig-badge" id="sig-R3in">R3in</span>
+            <span class="sig-badge" id="sig-Yin">Yin</span>
+            <span class="sig-badge" id="sig-SelectY">SelectY</span>
+            <span class="sig-badge" id="sig-Select4">Select4</span>
+            <span class="sig-badge" id="sig-Add">Add</span>
+            <span class="sig-badge" id="sig-Sub">Subtract</span>
+            <span class="sig-badge" id="sig-Zin">Zin</span>
+            <span class="sig-badge" id="sig-Zout">Zout</span>
+            <span class="sig-badge" id="sig-MDRin">MDRin</span>
+            <span class="sig-badge" id="sig-MDRoutE">MDRoutE</span>
+            <span class="sig-badge" id="sig-Write">Write</span>
+            <span class="sig-badge" id="sig-End">End</span>
+          </div>
+        </div>
+
+        <!-- Panel 3: Execution Timeline -->
+        <div class="panel-card card">
+          <div class="card-header">
+            <h3>⏱️ Micro-Step Timeline</h3>
+            <span class="text-muted text-small" id="timelineCount">8 Cycles</span>
+          </div>
+          <div class="timeline-list" id="timelineList">
+            <!-- Timeline items injected dynamically -->
+          </div>
+        </div>
+
+      </aside>
+
+    </div>
+
+    <!-- LOWER SECTION: Registers Monitor & Memory Inspector -->
+    <div class="lower-inspectors-grid">
+      
+      <!-- Register Monitor Table -->
+      <section class="card inspect-card">
+        <div class="card-header">
+          <div class="header-left">
+            <span class="badge-dot pulse-blue"></span>
+            <h3>CPU Registers Monitor</h3>
+          </div>
+          <span class="text-muted text-small">Live internal state</span>
+        </div>
+        <div class="reg-table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Register</th>
+                <th>Role in Architecture</th>
+                <th>Decimal Value</th>
+                <th>Hexadecimal</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="regTableBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Main Memory Visualization Table -->
+      <section class="card inspect-card">
+        <div class="card-header">
+          <div class="header-left">
+            <span class="badge-dot pulse-yellow"></span>
+            <h3>Main Memory (RAM) Inspector</h3>
+          </div>
+          <button id="btnResetMemory" class="btn btn-sm btn-secondary" title="Restore default memory contents">Default Memory</button>
+        </div>
+        <div class="memory-sections-wrap">
+          <!-- Instruction Memory -->
+          <div class="mem-sub-col">
+            <h4 class="mem-sub-title">Instruction Memory (PC: 100 - 112)</h4>
+            <table class="data-table mem-table">
+              <thead>
+                <tr>
+                  <th>Address</th>
+                  <th>Machine / Assembly Instruction</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="memInstrTableBody">
+                <!-- Instruction memory rows -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Data Memory -->
+          <div class="mem-sub-col">
+            <h4 class="mem-sub-title">Data Memory (Addresses 200 - 216)</h4>
+            <table class="data-table mem-table">
+              <thead>
+                <tr>
+                  <th>Address</th>
+                  <th>Label / Content</th>
+                  <th>Value</th>
+                  <th>Edit</th>
+                </tr>
+              </thead>
+              <tbody id="memDataTableBody">
+                <!-- Data memory rows with interactive editing -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+
+  <!-- TAB 2: LEARN THE CONCEPTS (COA Unit 4 Deep-Dive) -->
+  <section id="learning-tab" class="tab-pane">
+    <div class="learning-container">
+
+      <div class="learning-hero card">
+        <h2>Computer Organization &amp; Architecture: Unit 4 Fundamentals</h2>
+        <p>A comprehensive masterclass on Single-Bus CPU Organization, Register Transfers, Micro-operations, and Control Unit Architectures.</p>
+      </div>
+
+      <div class="learning-grid">
+
+        <!-- Module 1: Single Bus Organization -->
+        <article class="learn-card card">
+          <div class="card-icon">🚌</div>
+          <h3>1. Single-Bus Datapath Organization</h3>
+          <p>
+            In a <strong>single-bus datapath</strong>, all internal registers (PC, IR, General Purpose Registers R0–R7, MAR, MDR, Temp Y, and Temp Z) connect to a single common data bus.
+          </p>
+          <div class="concept-callout">
+            <strong>Key Characteristic:</strong> At any given clock cycle, <em>only one register can drive data onto the bus</em> (place output using its tristate buffer `Rout`), while one or more registers can latch data from the bus (`Rin`).
+          </div>
+          <p>
+            This hardware simplicity reduces chip pin-count and routing complexity, but introduces sequential bottlenecks since simultaneous transfers cannot occur.
+          </p>
+        </article>
+
+        <!-- Module 2: Register Transfers & Tri-State Gating -->
+        <article class="learn-card card">
+          <div class="card-icon">🔄</div>
+          <h3>2. Register Transfers &amp; Control Gating</h3>
+          <p>
+            Each register is accompanied by control lines:
+          </p>
+          <ul class="learn-bullets">
+            <li><strong>R_in (Input Enable):</strong> When asserted high at clock edge, the register loads whatever binary word is currently on the common bus.</li>
+            <li><strong>R_out (Output Enable):</strong> When asserted high, tri-state buffers connect the register's outputs to the bus. Otherwise, the register remains in a high-impedance state (Hi-Z).</li>
+          </ul>
+          <p>
+            Example: Moving data from R1 to R2 requires <code>R1out, R2in</code> asserted simultaneously within clock pulse T.
+          </p>
+        </article>
+
+        <!-- Module 3: Why Temp Registers Y & Z Are Necessary -->
+        <article class="learn-card card">
+          <div class="card-icon">🧮</div>
+          <h3>3. ALU Operations &amp; Temp Registers Y and Z</h3>
+          <p>
+            The Arithmetic Logic Unit (ALU) is purely combinational logic requiring two stable inputs simultaneously to generate an output.
+          </p>
+          <p>
+            <strong>The Single-Bus Dilemma:</strong> How can two operands reach the ALU if only one value can exist on the bus at a time?
+          </p>
+          <div class="concept-callout">
+            <strong>The Solution:</strong>
+            <br>1. First operand is placed on the bus and latched into <strong>Register Y</strong> (<code>R1out, Yin</code>).
+            <br>2. Second operand is placed on the bus (<code>R2out</code>).
+            <br>3. ALU computes <code>Add</code> or <code>Sub</code> between Bus and Y.
+            <br>4. Result cannot go straight to destination register because the bus is already occupied by R2! Hence, the result is captured in <strong>Register Z</strong> (<code>Zin</code>).
+            <br>5. In the subsequent cycle, Z drives the bus into destination (<code>Zout, R3in</code>).
+          </div>
+        </article>
+
+        <!-- Module 4: Fetch-Decode-Execute Cycle -->
+        <article class="learn-card card">
+          <div class="card-icon">🔁</div>
+          <h3>4. The Instruction Execution Cycle</h3>
+          <p>
+            Every machine instruction passes through three sequential phases:
+          </p>
+          <ol class="learn-ordered">
+            <li>
+              <strong>FETCH:</strong> PC contents copy to MAR (<code>PCout, MARin</code>). Read signal is issued. PC is incremented by 4 via ALU (<code>Select4, Add, Zin</code> -> <code>Zout, PCin</code>). Data returns from memory into MDR and transfers to IR (<code>MDRout, IRin</code>).
+            </li>
+            <li>
+              <strong>DECODE:</strong> The Control Unit inspects the opcode in IR, determines the addressing modes, and activates the corresponding micro-step sequencer.
+            </li>
+            <li>
+              <strong>EXECUTE:</strong> Micro-operations specific to the instruction run (e.g., ALU operations, address calculations, memory write, or conditional branch updates).
+            </li>
+          </ol>
+        </article>
+
+        <!-- Module 5: Memory Read / Write Interfacing -->
+        <article class="learn-card card">
+          <div class="card-icon">💾</div>
+          <h3>5. Memory Interfacing: MAR, MDR, and WMFC</h3>
+          <p>
+            CPU clock speeds are dramatically faster than external DRAM access latency.
+          </p>
+          <ul class="learn-bullets">
+            <li><strong>MAR (Memory Address Register):</strong> Unidirectional latch driving external address pins.</li>
+            <li><strong>MDR (Memory Data Register):</strong> Bidirectional register with two sets of gating: <code>MDRin/MDRout</code> (internal bus) and <code>MDRinE/MDRoutE</code> (external memory data bus).</li>
+            <li><strong>WMFC (Wait for Memory Function Completed):</strong> Causes CPU control sequence to stall until memory asserts the MFC acknowledge line, preventing race conditions.</li>
+          </ul>
+        </article>
+
+        <!-- Module 6: Hardwired vs Microprogrammed Control -->
+        <article class="learn-card card">
+          <div class="card-icon">⚙️</div>
+          <h3>6. Control Unit Architectures Compared</h3>
+          <table class="data-table comp-table">
+            <thead>
+              <tr>
+                <th>Feature</th>
+                <th>Hardwired Control Unit</th>
+                <th>Microprogrammed Control Unit</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Implementation</strong></td>
+                <td>Fixed combinational logic gates, decoders, and flip-flop counters.</td>
+                <td>Control Store ROM holding micro-routines of control words.</td>
+              </tr>
+              <tr>
+                <td><strong>Speed</strong></td>
+                <td>Extremely fast (direct gate propagation delay).</td>
+                <td>Slower (requires control memory read cycle).</td>
+              </tr>
+              <tr>
+                <td><strong>Flexibility</strong></td>
+                <td>Rigid; modifying instructions requires redesigning hardware.</td>
+                <td>Highly flexible; instructions can be updated by rewriting ROM.</td>
+              </tr>
+              <tr>
+                <td><strong>Chip Area &amp; Cost</strong></td>
+                <td>Grows exponentially with instruction complexity (RISC).</td>
+                <td>Systematic and cost-effective for large CISC instruction sets.</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+      </div>
+
+    </div>
+  </section>
+
+  <!-- TAB 3: PRACTICE & QUIZ MODE -->
+  <section id="practice-tab" class="tab-pane">
+    <div class="practice-container">
+
+      <div class="practice-header card">
+        <div class="practice-header-text">
+          <h2>🎯 COA Datapath Practice Challenges</h2>
+          <p>Test your understanding of register transfers, control signals, and CPU micro-operations. Submit your answers and receive immediate verified explanations.</p>
+        </div>
+        <div class="score-pill">
+          Score: <span id="quizScore">0</span> / <span id="quizTotal">5</span>
+        </div>
+      </div>
+
+      <!-- Practice Question Cards -->
+      <div class="quiz-cards-list" id="quizCardsContainer">
+        <!-- Rendered by JavaScript -->
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Global Footer -->
+  <footer class="app-footer">
+    <div class="footer-inner">
+      <span>Inside the CPU: An Interactive Instruction Execution and Datapath Simulator</span>
+      <span>Engineered for Computer Organization &amp; Architecture (COA) • Pure HTML5 / CSS3 / Vanilla JavaScript</span>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
